@@ -1,0 +1,21 @@
+parameters:
+    level: 6
+    paths:
+        - Model
+        - Setup
+        - Test/Unit
+    # Core Magento docblocks are routinely wider than runtime reality
+    # (array<int> properties documented non-nullable, etc.) — don't treat
+    # them as gospel when they would produce always-true/false findings.
+    treatPhpDocTypesAsCertain: false
+    ignoreErrors:
+        # Core Rows declares `@var int[] $limitationBy*` on an UNTYPED property
+        # that stays uninitialized (null) until execute() assigns it. The `?? []`
+        # guards direct reindex() invocation before execute() — the docblock,
+        # not our code, is what's lying here.
+        -
+            identifier: nullCoalesce.property
+            path: Model/Indexer/CategoryProduct/RowsAction.php
+        -
+            identifier: nullCoalesce.property
+            path: Model/Indexer/CategoryProduct/ProductCategoryRowsAction.php

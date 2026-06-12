@@ -54,7 +54,7 @@ class ProductCategoryRowsAction extends CoreRows
         ResourceConnection $resource,
         StoreManagerInterface $storeManager,
         Config $config,
-        private readonly Visibility $visibility,
+        private readonly Visibility $productVisibility,
         private readonly SnapshotBuilder $snapshotBuilder,
         private readonly CoreBehavior $coreBehavior,
         ?QueryGenerator $queryGenerator = null,

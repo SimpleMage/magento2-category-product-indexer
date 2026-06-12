@@ -32,7 +32,7 @@ use Zend_Db_Expr;
  *   protected $connection         — \Magento\Framework\DB\Adapter\AdapterInterface
  *   protected $metadataPool       — MetadataPool
  *   private   SnapshotBuilder $snapshotBuilder
- *   private   Visibility      $visibility
+ *   private   Visibility      $productVisibility
  *   private   CoreBehavior    $coreBehavior
  *
  * Required host class methods (from AbstractAction hierarchy):
@@ -43,7 +43,7 @@ use Zend_Db_Expr;
  * @property \Magento\Framework\DB\Adapter\AdapterInterface $connection
  * @property MetadataPool $metadataPool
  * @property SnapshotBuilder $snapshotBuilder
- * @property Visibility $visibility
+ * @property Visibility $productVisibility
  * @property CoreBehavior $coreBehavior
  */
 trait SnapshotAwareSelectsTrait
@@ -78,7 +78,7 @@ trait SnapshotAwareSelectsTrait
             \Magento\Catalog\Model\Product\Attribute\Source\Status::STATUS_ENABLED
         )->where(
             'ps.visibility IN (?)',
-            $this->visibility->getVisibleInSiteIds()
+            $this->productVisibility->getVisibleInSiteIds()
         )->group(
             'cp.entity_id'
         )->columns(
@@ -136,7 +136,7 @@ trait SnapshotAwareSelectsTrait
             \Magento\Catalog\Model\Product\Attribute\Source\Status::STATUS_ENABLED
         )->where(
             'ps.visibility IN (?)',
-            $this->visibility->getVisibleInSiteIds()
+            $this->productVisibility->getVisibleInSiteIds()
         )->where(
             'ps.is_salable_composite = ?',
             1
@@ -226,7 +226,7 @@ trait SnapshotAwareSelectsTrait
             \Magento\Catalog\Model\Product\Attribute\Source\Status::STATUS_ENABLED
         )->where(
             'ps.visibility IN (?)',
-            $this->visibility->getVisibleInSiteIds()
+            $this->productVisibility->getVisibleInSiteIds()
         )->columns(
             [
                 'category_id' => 'cc.entity_id',
@@ -322,7 +322,7 @@ trait SnapshotAwareSelectsTrait
             \Magento\Catalog\Model\Product\Attribute\Source\Status::STATUS_ENABLED
         )->where(
             'ps.visibility IN (?)',
-            $this->visibility->getVisibleInSiteIds()
+            $this->productVisibility->getVisibleInSiteIds()
         )->where(
             'ps.is_salable_composite = ?',
             1

@@ -10,6 +10,7 @@ declare(strict_types=1);
 namespace SimpleMage\CategoryProductIndexer\Test\Unit;
 
 use Magento\Framework\App\ProductMetadataInterface;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use SimpleMage\CategoryProductIndexer\Model\Indexer\CategoryProduct\CoreBehavior;
 
@@ -21,8 +22,12 @@ use SimpleMage\CategoryProductIndexer\Model\Indexer\CategoryProduct\CoreBehavior
 class CoreBehaviorTest extends TestCase
 {
     /**
+     * The annotation is kept alongside the attribute so the suite also runs
+     * on PHPUnit 9.x shipped with Magento <= 2.4.6 dev environments.
+     *
      * @dataProvider versionProvider
      */
+    #[DataProvider('versionProvider')]
     public function testDetectsIsActiveFilteringByCoreVersion(string $coreVersion, bool $expected): void
     {
         $behavior = new CoreBehavior($this->mockMetadata($coreVersion));

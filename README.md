@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Magento 2.4](https://img.shields.io/badge/Magento-2.4-orange.svg)](https://magento.com/)
-[![PHP 8.1+](https://img.shields.io/badge/PHP-8.1%2B-777BB4.svg)](https://www.php.net/)
+[![PHP 8.2-8.5](https://img.shields.io/badge/PHP-8.2--8.5-777BB4.svg)](https://www.php.net/)
 
 **High-performance drop-in replacement for Magento 2's `catalog_category_product` indexer.**
 
@@ -51,7 +51,7 @@ databases. In every run the index output was verified **byte-for-byte identical*
 to core Magento via full-content MD5 snapshots (every row, every column, every
 store view - no sampling).
 
-### Magento 2.4.7 - 111k products, 700+ categories
+### Magento 2.4.7-p7 - 111k products, 700+ categories
 
 | Metric | Core Magento | This module | Improvement |
 |---|---:|---:|---:|
@@ -181,7 +181,7 @@ All three replacements **extend** their core counterparts. Every overridden hook
 - ✅ **Magento Open Source 2.4.6 - 2.4.9** (tested on 2.4.6-p14, 2.4.7-p7, and 2.4.8-p4 via Mage-OS 2.2.x)
 - ✅ **Adobe Commerce 2.4.6 - 2.4.9** (without staging - see Known limitations)
 - ✅ **Mage-OS 1.x / 2.x / 3.x** - `getVersion()` stays Magento-compatible, so detection below works unchanged
-- ✅ **PHP 8.1 / 8.2 / 8.3 / 8.4**
+- ✅ **PHP 8.2 / 8.3 / 8.4 / 8.5** - matches the PHP window of the supported Magento releases; CI runs the full matrix
 - ✅ **MySQL 8.0** and **MariaDB 10.4 - 10.11**
 - ✅ Multi-store, multi-website
 - ✅ Anchor categories

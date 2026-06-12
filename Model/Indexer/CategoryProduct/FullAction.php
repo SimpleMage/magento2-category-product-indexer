@@ -17,6 +17,7 @@ use Magento\Framework\App\DeploymentConfig;
 use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\DB\Adapter\AdapterInterface;
 use Magento\Framework\DB\Query\Generator as QueryGenerator;
+use Magento\Framework\DB\Select;
 use Magento\Framework\EntityManager\MetadataPool;
 use Magento\Framework\Indexer\BatchProviderInterface;
 use Magento\Framework\Indexer\BatchSizeManagementInterface;
@@ -56,7 +57,7 @@ class FullAction extends CoreFull
         ResourceConnection $resource,
         StoreManagerInterface $storeManager,
         Config $config,
-        private readonly Visibility $visibility,
+        private readonly Visibility $productVisibility,
         private readonly SnapshotBuilder $snapshotBuilder,
         private readonly CoreBehavior $coreBehavior,
         ?QueryGenerator $queryGenerator = null,
@@ -187,7 +188,7 @@ class FullAction extends CoreFull
      * Executes `INSERT INTO _tmp SELECT ...` + publish to _replica in one go,
      * replacing core's per-batch iteration.
      */
-    private function singleShotReindex(Store $store, $select): void
+    private function singleShotReindex(Store $store, Select $select): void
     {
         $storeId = (int) $store->getId();
         $tmpTable = $this->tableMaintainer->getMainTmpTable($storeId);
