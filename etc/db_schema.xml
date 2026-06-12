@@ -1,0 +1,97 @@
+<?xml version="1.0"?>
+<!--
+/**
+ * Copyright © SimpleMage. All rights reserved.
+ * Licensed under the MIT License. See LICENSE for details.
+ *
+ * Canonical definitions of the snapshot tables. SnapshotBuilder re-creates
+ * these tables at runtime with byte-equivalent DDL (DROP/CREATE self-heals
+ * schema bumps from older module versions) — keep both in sync; guarded by
+ * Test\Unit\DbSchemaSyncTest.
+ */
+-->
+<schema xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:framework:Setup/Declaration/Schema/etc/schema.xsd">
+
+    <table name="simplemage_product_eav_snapshot" resource="default" engine="innodb"
+           comment="SimpleMage: per-store product status/visibility/salability snapshot">
+        <column xsi:type="int" name="entity_id" unsigned="true" nullable="false"
+                comment="Product Entity ID"/>
+        <column xsi:type="smallint" name="store_id" unsigned="true" nullable="false"
+                comment="Store View ID"/>
+        <column xsi:type="smallint" name="status" nullable="false" default="0"
+                comment="Resolved status (COALESCE store, default)"/>
+        <column xsi:type="smallint" name="visibility" nullable="false" default="0"
+                comment="Resolved visibility (COALESCE store, default)"/>
+        <column xsi:type="boolean" name="is_salable_composite" nullable="false" default="true"
+                comment="1 unless composite parent with no enabled children"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY">
+            <column name="entity_id"/>
+            <column name="store_id"/>
+        </constraint>
+        <index referenceId="SIMPLEMAGE_PRODUCT_EAV_SNAPSHOT_STORE_ID_STATUS_VISIBILITY" indexType="btree">
+            <column name="store_id"/>
+            <column name="status"/>
+            <column name="visibility"/>
+        </index>
+    </table>
+
+    <table name="simplemage_category_eav_snapshot" resource="default" engine="innodb"
+           comment="SimpleMage: per-store category is_active/is_anchor snapshot">
+        <column xsi:type="int" name="entity_id" unsigned="true" nullable="false"
+                comment="Category Entity ID"/>
+        <column xsi:type="smallint" name="store_id" unsigned="true" nullable="false"
+                comment="Store View ID"/>
+        <column xsi:type="boolean" name="is_active" nullable="false" default="false"
+                comment="Resolved is_active (COALESCE store, default)"/>
+        <column xsi:type="boolean" name="is_anchor" nullable="false" default="false"
+                comment="Resolved is_anchor (COALESCE store, default)"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY">
+            <column name="entity_id"/>
+            <column name="store_id"/>
+        </constraint>
+        <index referenceId="SIMPLEMAGE_CATEGORY_EAV_SNAPSHOT_STORE_ID_IS_ACTIVE_IS_ANCHOR" indexType="btree">
+            <column name="store_id"/>
+            <column name="is_active"/>
+            <column name="is_anchor"/>
+        </index>
+    </table>
+
+    <table name="simplemage_category_ancestor_map" resource="default" engine="innodb"
+           comment="SimpleMage: structural (ancestor, descendant) category pairs from path">
+        <column xsi:type="int" name="ancestor_id" unsigned="true" nullable="false"
+                comment="Proper ancestor category ID"/>
+        <column xsi:type="int" name="category_id" unsigned="true" nullable="false"
+                comment="Descendant category ID"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY">
+            <column name="ancestor_id"/>
+            <column name="category_id"/>
+        </constraint>
+        <index referenceId="SIMPLEMAGE_CATEGORY_ANCESTOR_MAP_CATEGORY_ID" indexType="btree">
+            <column name="category_id"/>
+        </index>
+    </table>
+
+    <table name="simplemage_category_product_anchor_snapshot" resource="default" engine="innodb"
+           comment="SimpleMage: store-aware flat (anchor, product) pairs with aggregated positions">
+        <column xsi:type="smallint" name="store_id" unsigned="true" nullable="false"
+                comment="Store View ID"/>
+        <column xsi:type="int" name="anchor_category_id" unsigned="true" nullable="false"
+                comment="Ancestor (anchor) category ID"/>
+        <column xsi:type="int" name="product_id" unsigned="true" nullable="false"
+                comment="Product assigned to any active descendant"/>
+        <column xsi:type="int" name="min_position" nullable="false"
+                comment="MIN(position) across active descendant assignments"/>
+        <column xsi:type="int" name="direct_position" nullable="true"
+                comment="Position when directly assigned to the anchor"/>
+        <constraint xsi:type="primary" referenceId="PRIMARY">
+            <column name="store_id"/>
+            <column name="anchor_category_id"/>
+            <column name="product_id"/>
+        </constraint>
+        <index referenceId="SIMPLEMAGE_CATEGORY_PRODUCT_ANCHOR_SNAPSHOT_PRODUCT_ID" indexType="btree">
+            <column name="product_id"/>
+        </index>
+    </table>
+
+</schema>

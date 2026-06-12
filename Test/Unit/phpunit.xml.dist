@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/9.5/phpunit.xsd"
+         bootstrap="../../../../../../dev/tests/unit/framework/bootstrap.php"
+         colors="true"
+         beStrictAboutOutputDuringTests="true"
+         beStrictAboutTestsThatDoNotTestAnything="true"
+         beStrictAboutTodoAnnotatedTests="true">
+    <testsuites>
+        <testsuite name="SimpleMage CategoryProductIndexer Unit Tests">
+            <directory>.</directory>
+            <exclude>./phpunit.xml.dist</exclude>
+        </testsuite>
+    </testsuites>
+    <coverage processUncoveredFiles="true">
+        <include>
+            <directory suffix=".php">../../</directory>
+        </include>
+        <exclude>
+            <directory>../../Test</directory>
+            <file>../../registration.php</file>
+        </exclude>
+    </coverage>
+</phpunit>

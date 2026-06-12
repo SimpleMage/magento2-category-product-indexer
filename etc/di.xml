@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:noNamespaceSchemaLocation="urn:magento:framework:ObjectManager/etc/config.xsd">
+    <preference for="Magento\Catalog\Model\Indexer\Category\Product\Action\Full"
+                type="SimpleMage\CategoryProductIndexer\Model\Indexer\CategoryProduct\FullAction"/>
+    <preference for="Magento\Catalog\Model\Indexer\Category\Product\Action\Rows"
+                type="SimpleMage\CategoryProductIndexer\Model\Indexer\CategoryProduct\RowsAction"/>
+    <preference for="Magento\Catalog\Model\Indexer\Product\Category\Action\Rows"
+                type="SimpleMage\CategoryProductIndexer\Model\Indexer\CategoryProduct\ProductCategoryRowsAction"/>
+</config>

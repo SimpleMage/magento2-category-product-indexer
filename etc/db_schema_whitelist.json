@@ -1,0 +1,58 @@
+{
+    "simplemage_product_eav_snapshot": {
+        "column": {
+            "entity_id": true,
+            "store_id": true,
+            "status": true,
+            "visibility": true,
+            "is_salable_composite": true
+        },
+        "index": {
+            "SIMPLEMAGE_PRODUCT_EAV_SNAPSHOT_STORE_ID_STATUS_VISIBILITY": true
+        },
+        "constraint": {
+            "PRIMARY": true
+        }
+    },
+    "simplemage_category_eav_snapshot": {
+        "column": {
+            "entity_id": true,
+            "store_id": true,
+            "is_active": true,
+            "is_anchor": true
+        },
+        "index": {
+            "SIMPLEMAGE_CATEGORY_EAV_SNAPSHOT_STORE_ID_IS_ACTIVE_IS_ANCHOR": true
+        },
+        "constraint": {
+            "PRIMARY": true
+        }
+    },
+    "simplemage_category_ancestor_map": {
+        "column": {
+            "ancestor_id": true,
+            "category_id": true
+        },
+        "index": {
+            "SIMPLEMAGE_CATEGORY_ANCESTOR_MAP_CATEGORY_ID": true
+        },
+        "constraint": {
+            "PRIMARY": true
+        }
+    },
+    "simplemage_category_product_anchor_snapshot": {
+        "column": {
+            "store_id": true,
+            "anchor_category_id": true,
+            "product_id": true,
+            "min_position": true,
+            "direct_position": true
+        },
+        "index": {
+            "SIMPLEMAGE_CATEGORY_PRODUCT_ANCHOR_SNAPSHOT_PRODUCT_ID": true
+        },
+        "constraint": {
+            "PRIMARY": true
+        }
+    }
+}

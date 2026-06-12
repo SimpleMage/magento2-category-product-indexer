@@ -1,0 +1,49 @@
+{
+    "name": "simplemage/module-category-product-indexer",
+    "description": "High-performance rewrite of Magento 2's catalog_category_product indexer using the snapshot pattern. Solves the classic 'Could not acquire lock' hang on large catalogs (500k+ products). 2.6x-7.7x faster measured on real production databases.",
+    "type": "magento2-module",
+    "license": "MIT",
+    "keywords": [
+        "magento",
+        "magento2",
+        "indexer",
+        "performance",
+        "catalog",
+        "category-product",
+        "snapshot-pattern"
+    ],
+    "homepage": "https://github.com/simplemage/magento2-category-product-indexer",
+    "support": {
+        "issues": "https://github.com/simplemage/magento2-category-product-indexer/issues",
+        "source": "https://github.com/simplemage/magento2-category-product-indexer"
+    },
+    "require": {
+        "php": "^8.1",
+        "magento/framework": ">=103.0.0",
+        "magento/module-catalog": ">=104.0.0",
+        "magento/module-indexer": ">=100.4.0"
+    },
+    "suggest": {
+        "simplemage/module-indexer-benchmark": "Dev-only companion harness: before/after benchmarks and byte-identity verification against core (staging/dev environments only)"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^9.5 || ^10.0",
+        "phpstan/phpstan": "^1.10",
+        "squizlabs/php_codesniffer": "^3.7",
+        "magento/magento-coding-standard": "^32.0"
+    },
+    "autoload": {
+        "files": [
+            "registration.php"
+        ],
+        "psr-4": {
+            "SimpleMage\\CategoryProductIndexer\\": ""
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "SimpleMage\\CategoryProductIndexer\\Test\\Unit\\": "Test/Unit/",
+            "SimpleMage\\CategoryProductIndexer\\Test\\Integration\\": "Test/Integration/"
+        }
+    }
+}
