@@ -88,7 +88,7 @@ class SnapshotBuilderContractTest extends TestCase
         self::assertNotSame('', $source);
 
         $insertCount = \preg_match_all(
-            '/INSERT INTO %s \(entity_id, store_id, status, visibility(?<salable>, is_salable_composite)?\)/',
+            "/'entity_id', 'store_id', 'status', 'visibility'(?<salable>, 'is_salable_composite')?/",
             $source,
             $matches,
         );
@@ -100,7 +100,7 @@ class SnapshotBuilderContractTest extends TestCase
         );
         foreach ($matches['salable'] as $i => $capture) {
             self::assertSame(
-                ', is_salable_composite',
+                ", 'is_salable_composite'",
                 $capture,
                 \sprintf(
                     'Product snapshot INSERT #%d omits is_salable_composite — the column '

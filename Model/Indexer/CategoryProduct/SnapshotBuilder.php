@@ -9,14 +9,19 @@ declare(strict_types=1);
 
 namespace SimpleMage\CategoryProductIndexer\Model\Indexer\CategoryProduct;
 
+use Magento\Catalog\Api\Data\CategoryInterface;
+use Magento\Catalog\Api\Data\ProductInterface;
 use Magento\Catalog\Model\Category;
 use Magento\Catalog\Model\Config as CatalogConfig;
 use Magento\Catalog\Model\Product;
 use Magento\Framework\App\ResourceConnection;
 use Magento\Framework\DB\Adapter\AdapterInterface;
+use Magento\Framework\DB\Select;
+use Magento\Framework\EntityManager\MetadataPool;
 use Magento\Framework\Exception\LocalizedException;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Console\Output\OutputInterface;
+use Zend_Db_Expr;
 
 /**
  * Snapshot pattern applied to the `catalog_category_product` rewrite.
@@ -82,7 +87,26 @@ class SnapshotBuilder
         private readonly ResourceConnection $resourceConnection,
         private readonly CatalogConfig $catalogConfig,
         private readonly LoggerInterface $logger,
+        private readonly MetadataPool $metadataPool,
     ) {
+    }
+
+    /**
+     * EAV link field for products — `entity_id` on Open Source, `row_id` on
+     * Adobe Commerce (staging). EAV value tables and
+     * catalog_product_relation.parent_id are keyed by THIS field; everything
+     * else (catalog_category_product, catalog_product_website,
+     * catalog_product_relation.child_id, the snapshot tables) stays in stable
+     * entity_id space.
+     */
+    private function productLinkField(): string
+    {
+        return $this->metadataPool->getMetadata(ProductInterface::class)->getLinkField();
+    }
+
+    private function categoryLinkField(): string
+    {
+        return $this->metadataPool->getMetadata(CategoryInterface::class)->getLinkField();
     }
 
     // ---------------------------------------------------------------------
@@ -330,48 +354,118 @@ class SnapshotBuilder
      * Shared by the full build AND refreshProductRows — keeping the partial
      * refresh from silently degrading to the column default was the single
      * worst correctness bug of the 1.0 line.
+     *
+     * Built from Select objects (not raw SQL) so Adobe Commerce's staging
+     * FromRenderer injects `created_in/updated_in` version filters on the
+     * child entity join at assemble() time — a raw string would silently read
+     * ALL row versions of children with scheduled updates. `rel.parent_id`
+     * and the EAV joins are link-field space (`row_id` on Adobe Commerce);
+     * `rel.child_id` is stable entity_id space, so the child's EAV rows are
+     * reached through its (version-filtered) entity row `ce`.
      */
     private function isSalableCompositeSql(AdapterInterface $connection, int $statusAttrId): string
     {
-        $relationTable = $connection->quoteIdentifier(
-            $this->resourceConnection->getTableName('catalog_product_relation')
-        );
-        $eavIntTable = $connection->quoteIdentifier(
-            $this->resourceConnection->getTableName('catalog_product_entity_int')
-        );
+        $linkField = $this->productLinkField();
+        $relationTable = $this->resourceConnection->getTableName('catalog_product_relation');
+        $productTable = $this->resourceConnection->getTableName('catalog_product_entity');
+        $eavIntTable = $this->resourceConnection->getTableName('catalog_product_entity_int');
+
+        $existsSelect = $connection->select()
+            ->from(['rel' => $relationTable], [new Zend_Db_Expr('1')])
+            ->where(sprintf('rel.parent_id = p.%s', $linkField));
+
+        // Magento status enum: 1=ENABLED, 2=DISABLED. A composite is salable
+        // iff at least one child resolves to enabled: MIN over COALESCE(store,
+        // default) = 1. Children without a default-scope status row are
+        // excluded (INNER JOIN), and an empty aggregate COALESCEs to 0 — both
+        // match core.
+        $childStatusSelect = $connection->select()
+            ->from(['rel' => $relationTable], [])
+            ->joinInner(
+                ['ce' => $productTable],
+                'ce.entity_id = rel.child_id',
+                []
+            )
+            ->joinInner(
+                ['csd' => $eavIntTable],
+                sprintf('csd.%1$s = ce.%1$s AND csd.store_id = 0 AND csd.attribute_id = %2$d', $linkField, $statusAttrId),
+                []
+            )
+            ->joinLeft(
+                ['css' => $eavIntTable],
+                sprintf('css.%1$s = ce.%1$s AND css.store_id = s.store_id AND css.attribute_id = %2$d', $linkField, $statusAttrId),
+                []
+            )
+            ->where(sprintf('rel.parent_id = p.%s', $linkField))
+            ->columns(new Zend_Db_Expr('IF(COALESCE(MIN(COALESCE(css.value, csd.value)), 0) = 1, 1, 0)'));
 
         return sprintf(
-            <<<'SQL'
-            CASE
-                WHEN NOT EXISTS (
-                    SELECT 1 FROM %s rel WHERE rel.parent_id = p.entity_id
-                ) THEN 1
-                ELSE (
-                    -- Magento status enum: 1=ENABLED, 2=DISABLED. A composite is
-                    -- salable iff at least one child resolves to enabled:
-                    -- MIN over COALESCE(store, default) = 1. Children without a
-                    -- default-scope status row are excluded (INNER JOIN), and an
-                    -- empty aggregate COALESCEs to 0 — both match core.
-                    SELECT IF(COALESCE(MIN(COALESCE(css.value, csd.value)), 0) = 1, 1, 0)
-                    FROM %s rel
-                    INNER JOIN %s csd ON csd.entity_id = rel.child_id AND csd.store_id = 0 AND csd.attribute_id = %d
-                    LEFT JOIN %s css ON css.entity_id = rel.child_id AND css.store_id = s.store_id AND css.attribute_id = %d
-                    WHERE rel.parent_id = p.entity_id
-                )
-            END
-            SQL,
-            $relationTable,
-            $relationTable,
-            $eavIntTable,
-            $statusAttrId,
-            $eavIntTable,
-            $statusAttrId,
+            'CASE WHEN NOT EXISTS (%s) THEN 1 ELSE (%s) END',
+            $existsSelect->assemble(),
+            $childStatusSelect->assemble(),
         );
     }
 
     // ---------------------------------------------------------------------
     // Product snapshot
     // ---------------------------------------------------------------------
+
+    /**
+     * Shared SELECT for the product snapshot rows (full build chunks and the
+     * partial refresh differ only in the WHERE filter on p.entity_id).
+     *
+     * Built as a Select object so Adobe Commerce's staging FromRenderer
+     * injects `created_in/updated_in` current-version filters on
+     * catalog_product_entity at assemble() time. EAV joins use the metadata
+     * link field (`row_id` on Adobe Commerce, `entity_id` on Open Source),
+     * mirroring core AbstractAction; the snapshot itself stays keyed by
+     * stable entity_id.
+     */
+    private function productSnapshotSelect(
+        AdapterInterface $connection,
+        int $statusAttrId,
+        int $visibilityAttrId,
+        string $productFilterSql,
+    ): Select {
+        $linkField = $this->productLinkField();
+        $productTable = $this->resourceConnection->getTableName('catalog_product_entity');
+        $eavIntTable = $this->resourceConnection->getTableName('catalog_product_entity_int');
+        $storeTable = $this->resourceConnection->getTableName('store');
+
+        return $connection->select()
+            ->from(['p' => $productTable], [])
+            ->joinInner(['s' => $storeTable], 's.store_id > 0', [])
+            ->joinInner(
+                ['sd' => $eavIntTable],
+                sprintf('sd.%1$s = p.%1$s AND sd.store_id = 0 AND sd.attribute_id = %2$d', $linkField, $statusAttrId),
+                []
+            )
+            ->joinLeft(
+                ['ss' => $eavIntTable],
+                sprintf('ss.%1$s = p.%1$s AND ss.store_id = s.store_id AND ss.attribute_id = %2$d', $linkField, $statusAttrId),
+                []
+            )
+            ->joinInner(
+                ['vd' => $eavIntTable],
+                sprintf('vd.%1$s = p.%1$s AND vd.store_id = 0 AND vd.attribute_id = %2$d', $linkField, $visibilityAttrId),
+                []
+            )
+            ->joinLeft(
+                ['vs' => $eavIntTable],
+                sprintf('vs.%1$s = p.%1$s AND vs.store_id = s.store_id AND vs.attribute_id = %2$d', $linkField, $visibilityAttrId),
+                []
+            )
+            ->where($productFilterSql)
+            ->columns([
+                'entity_id' => 'p.entity_id',
+                'store_id' => 's.store_id',
+                'status' => new Zend_Db_Expr('COALESCE(ss.value, sd.value)'),
+                'visibility' => new Zend_Db_Expr('COALESCE(vs.value, vd.value)'),
+                'is_salable_composite' => new Zend_Db_Expr(
+                    $this->isSalableCompositeSql($connection, $statusAttrId)
+                ),
+            ]);
+    }
 
     private function buildProductSnapshot(?OutputInterface $output = null): void
     {
@@ -382,8 +476,6 @@ class SnapshotBuilder
         $visibilityAttrId = $this->requireAttributeId(Product::ENTITY, 'visibility');
 
         $productTable = $this->resourceConnection->getTableName('catalog_product_entity');
-        $eavIntTable = $this->resourceConnection->getTableName('catalog_product_entity_int');
-        $storeTable = $this->resourceConnection->getTableName('store');
 
         $output?->writeln('<info>[snapshot] (re)building product EAV snapshot...</info>');
 
@@ -425,40 +517,18 @@ class SnapshotBuilder
                 $to = $from + self::PRODUCT_CHUNK_SIZE - 1;
                 $chunkIdx++;
 
-                $sql = sprintf(
-                    <<<'SQL'
-                    INSERT INTO %s (entity_id, store_id, status, visibility, is_salable_composite)
-                    SELECT
-                        p.entity_id,
-                        s.store_id,
-                        COALESCE(ss.value, sd.value) AS status,
-                        COALESCE(vs.value, vd.value) AS visibility,
-                        %s AS is_salable_composite
-                    FROM %s AS p
-                    CROSS JOIN %s AS s
-                    INNER JOIN %s AS sd ON sd.entity_id = p.entity_id AND sd.store_id = 0 AND sd.attribute_id = %d
-                    LEFT JOIN %s AS ss ON ss.entity_id = p.entity_id AND ss.store_id = s.store_id AND ss.attribute_id = %d
-                    INNER JOIN %s AS vd ON vd.entity_id = p.entity_id AND vd.store_id = 0 AND vd.attribute_id = %d
-                    LEFT JOIN %s AS vs ON vs.entity_id = p.entity_id AND vs.store_id = s.store_id AND vs.attribute_id = %d
-                    WHERE s.store_id > 0 AND p.entity_id BETWEEN %d AND %d
-                    SQL,
-                    $connection->quoteIdentifier($table),
-                    $this->isSalableCompositeSql($connection, $statusAttrId),
-                    $connection->quoteIdentifier($productTable),
-                    $connection->quoteIdentifier($storeTable),
-                    $connection->quoteIdentifier($eavIntTable),
+                $select = $this->productSnapshotSelect(
+                    $connection,
                     $statusAttrId,
-                    $connection->quoteIdentifier($eavIntTable),
-                    $statusAttrId,
-                    $connection->quoteIdentifier($eavIntTable),
                     $visibilityAttrId,
-                    $connection->quoteIdentifier($eavIntTable),
-                    $visibilityAttrId,
-                    $from,
-                    $to,
+                    sprintf('p.entity_id BETWEEN %d AND %d', $from, $to),
                 );
                 $chunkStartNs = hrtime(true);
-                $stmt = $connection->query($sql);
+                $stmt = $connection->query($connection->insertFromSelect(
+                    $select,
+                    $table,
+                    ['entity_id', 'store_id', 'status', 'visibility', 'is_salable_composite'],
+                ));
                 $rowsThis = $stmt->rowCount();
                 $rowsTotal += $rowsThis;
                 $chunkMs = (int) round((hrtime(true) - $chunkStartNs) / 1_000_000);
@@ -502,45 +572,20 @@ class SnapshotBuilder
         $statusAttrId = $this->requireAttributeId(Product::ENTITY, 'status');
         $visibilityAttrId = $this->requireAttributeId(Product::ENTITY, 'visibility');
 
-        $productTable = $this->resourceConnection->getTableName('catalog_product_entity');
-        $eavIntTable = $this->resourceConnection->getTableName('catalog_product_entity_int');
-        $storeTable = $this->resourceConnection->getTableName('store');
-
         $startNs = hrtime(true);
         $connection->delete($table, ['entity_id IN (?)' => $idList]);
 
-        $sql = sprintf(
-            <<<'SQL'
-            INSERT INTO %s (entity_id, store_id, status, visibility, is_salable_composite)
-            SELECT
-                p.entity_id,
-                s.store_id,
-                COALESCE(ss.value, sd.value) AS status,
-                COALESCE(vs.value, vd.value) AS visibility,
-                %s AS is_salable_composite
-            FROM %s AS p
-            CROSS JOIN %s AS s
-            INNER JOIN %s AS sd ON sd.entity_id = p.entity_id AND sd.store_id = 0 AND sd.attribute_id = %d
-            LEFT JOIN %s AS ss ON ss.entity_id = p.entity_id AND ss.store_id = s.store_id AND ss.attribute_id = %d
-            INNER JOIN %s AS vd ON vd.entity_id = p.entity_id AND vd.store_id = 0 AND vd.attribute_id = %d
-            LEFT JOIN %s AS vs ON vs.entity_id = p.entity_id AND vs.store_id = s.store_id AND vs.attribute_id = %d
-            WHERE s.store_id > 0 AND p.entity_id IN (%s)
-            SQL,
-            $connection->quoteIdentifier($table),
-            $this->isSalableCompositeSql($connection, $statusAttrId),
-            $connection->quoteIdentifier($productTable),
-            $connection->quoteIdentifier($storeTable),
-            $connection->quoteIdentifier($eavIntTable),
+        $select = $this->productSnapshotSelect(
+            $connection,
             $statusAttrId,
-            $connection->quoteIdentifier($eavIntTable),
-            $statusAttrId,
-            $connection->quoteIdentifier($eavIntTable),
             $visibilityAttrId,
-            $connection->quoteIdentifier($eavIntTable),
-            $visibilityAttrId,
-            implode(',', $idList),
+            sprintf('p.entity_id IN (%s)', implode(',', $idList)),
         );
-        $connection->query($sql);
+        $connection->query($connection->insertFromSelect(
+            $select,
+            $table,
+            ['entity_id', 'store_id', 'status', 'visibility', 'is_salable_composite'],
+        ));
         $durationMs = (hrtime(true) - $startNs) / 1_000_000;
 
         $output?->writeln(sprintf(
@@ -554,6 +599,59 @@ class SnapshotBuilder
     // Category snapshot
     // ---------------------------------------------------------------------
 
+    /**
+     * Shared SELECT for the category snapshot rows (full build and partial
+     * refresh differ only in the optional filter on c.entity_id). Same
+     * link-field + staging-aware Select rationale as productSnapshotSelect().
+     */
+    private function categorySnapshotSelect(
+        AdapterInterface $connection,
+        int $isActiveAttrId,
+        int $isAnchorAttrId,
+        ?string $categoryFilterSql = null,
+    ): Select {
+        $linkField = $this->categoryLinkField();
+        $categoryTable = $this->resourceConnection->getTableName('catalog_category_entity');
+        $eavIntTable = $this->resourceConnection->getTableName('catalog_category_entity_int');
+        $storeTable = $this->resourceConnection->getTableName('store');
+
+        $select = $connection->select()
+            ->from(['c' => $categoryTable], [])
+            ->joinInner(['s' => $storeTable], 's.store_id > 0', [])
+            ->joinInner(
+                ['iad' => $eavIntTable],
+                sprintf('iad.%1$s = c.%1$s AND iad.store_id = 0 AND iad.attribute_id = %2$d', $linkField, $isActiveAttrId),
+                []
+            )
+            ->joinLeft(
+                ['ias' => $eavIntTable],
+                sprintf('ias.%1$s = c.%1$s AND ias.store_id = s.store_id AND ias.attribute_id = %2$d', $linkField, $isActiveAttrId),
+                []
+            )
+            ->joinInner(
+                ['and_d' => $eavIntTable],
+                sprintf('and_d.%1$s = c.%1$s AND and_d.store_id = 0 AND and_d.attribute_id = %2$d', $linkField, $isAnchorAttrId),
+                []
+            )
+            ->joinLeft(
+                ['ans' => $eavIntTable],
+                sprintf('ans.%1$s = c.%1$s AND ans.store_id = s.store_id AND ans.attribute_id = %2$d', $linkField, $isAnchorAttrId),
+                []
+            )
+            ->columns([
+                'entity_id' => 'c.entity_id',
+                'store_id' => 's.store_id',
+                'is_active' => new Zend_Db_Expr('COALESCE(ias.value, iad.value)'),
+                'is_anchor' => new Zend_Db_Expr('COALESCE(ans.value, and_d.value)'),
+            ]);
+
+        if ($categoryFilterSql !== null) {
+            $select->where($categoryFilterSql);
+        }
+
+        return $select;
+    }
+
     private function buildCategorySnapshot(?OutputInterface $output = null): void
     {
         $connection = $this->resourceConnection->getConnection();
@@ -561,10 +659,6 @@ class SnapshotBuilder
 
         $isActiveAttrId = $this->requireAttributeId(Category::ENTITY, 'is_active');
         $isAnchorAttrId = $this->requireAttributeId(Category::ENTITY, 'is_anchor');
-
-        $categoryTable = $this->resourceConnection->getTableName('catalog_category_entity');
-        $eavIntTable = $this->resourceConnection->getTableName('catalog_category_entity_int');
-        $storeTable = $this->resourceConnection->getTableName('store');
 
         $output?->writeln('<info>[snapshot] (re)building category EAV snapshot...</info>');
 
@@ -583,36 +677,13 @@ class SnapshotBuilder
             $connection->quoteIdentifier($table)
         ));
 
-        $sql = sprintf(
-            <<<'SQL'
-            INSERT INTO %s (entity_id, store_id, is_active, is_anchor)
-            SELECT
-                c.entity_id,
-                s.store_id,
-                COALESCE(ias.value, iad.value) AS is_active,
-                COALESCE(ans.value, and_d.value) AS is_anchor
-            FROM %s AS c
-            CROSS JOIN %s AS s
-            INNER JOIN %s AS iad ON iad.entity_id = c.entity_id AND iad.store_id = 0 AND iad.attribute_id = %d
-            LEFT JOIN %s AS ias ON ias.entity_id = c.entity_id AND ias.store_id = s.store_id AND ias.attribute_id = %d
-            INNER JOIN %s AS and_d ON and_d.entity_id = c.entity_id AND and_d.store_id = 0 AND and_d.attribute_id = %d
-            LEFT JOIN %s AS ans ON ans.entity_id = c.entity_id AND ans.store_id = s.store_id AND ans.attribute_id = %d
-            WHERE s.store_id > 0
-            SQL,
-            $connection->quoteIdentifier($table),
-            $connection->quoteIdentifier($categoryTable),
-            $connection->quoteIdentifier($storeTable),
-            $connection->quoteIdentifier($eavIntTable),
-            $isActiveAttrId,
-            $connection->quoteIdentifier($eavIntTable),
-            $isActiveAttrId,
-            $connection->quoteIdentifier($eavIntTable),
-            $isAnchorAttrId,
-            $connection->quoteIdentifier($eavIntTable),
-            $isAnchorAttrId,
-        );
+        $select = $this->categorySnapshotSelect($connection, $isActiveAttrId, $isAnchorAttrId);
         $startNs = hrtime(true);
-        $connection->query($sql);
+        $connection->query($connection->insertFromSelect(
+            $select,
+            $table,
+            ['entity_id', 'store_id', 'is_active', 'is_anchor'],
+        ));
         $durationMs = (hrtime(true) - $startNs) / 1_000_000;
 
         $rows = (int) $connection->fetchOne(
@@ -639,43 +710,20 @@ class SnapshotBuilder
         $isActiveAttrId = $this->requireAttributeId(Category::ENTITY, 'is_active');
         $isAnchorAttrId = $this->requireAttributeId(Category::ENTITY, 'is_anchor');
 
-        $categoryTable = $this->resourceConnection->getTableName('catalog_category_entity');
-        $eavIntTable = $this->resourceConnection->getTableName('catalog_category_entity_int');
-        $storeTable = $this->resourceConnection->getTableName('store');
-
         $startNs = hrtime(true);
         $connection->delete($table, ['entity_id IN (?)' => $idList]);
 
-        $sql = sprintf(
-            <<<'SQL'
-            INSERT INTO %s (entity_id, store_id, is_active, is_anchor)
-            SELECT
-                c.entity_id,
-                s.store_id,
-                COALESCE(ias.value, iad.value) AS is_active,
-                COALESCE(ans.value, and_d.value) AS is_anchor
-            FROM %s AS c
-            CROSS JOIN %s AS s
-            INNER JOIN %s AS iad ON iad.entity_id = c.entity_id AND iad.store_id = 0 AND iad.attribute_id = %d
-            LEFT JOIN %s AS ias ON ias.entity_id = c.entity_id AND ias.store_id = s.store_id AND ias.attribute_id = %d
-            INNER JOIN %s AS and_d ON and_d.entity_id = c.entity_id AND and_d.store_id = 0 AND and_d.attribute_id = %d
-            LEFT JOIN %s AS ans ON ans.entity_id = c.entity_id AND ans.store_id = s.store_id AND ans.attribute_id = %d
-            WHERE s.store_id > 0 AND c.entity_id IN (%s)
-            SQL,
-            $connection->quoteIdentifier($table),
-            $connection->quoteIdentifier($categoryTable),
-            $connection->quoteIdentifier($storeTable),
-            $connection->quoteIdentifier($eavIntTable),
+        $select = $this->categorySnapshotSelect(
+            $connection,
             $isActiveAttrId,
-            $connection->quoteIdentifier($eavIntTable),
-            $isActiveAttrId,
-            $connection->quoteIdentifier($eavIntTable),
             $isAnchorAttrId,
-            $connection->quoteIdentifier($eavIntTable),
-            $isAnchorAttrId,
-            implode(',', $idList),
+            sprintf('c.entity_id IN (%s)', implode(',', $idList)),
         );
-        $connection->query($sql);
+        $connection->query($connection->insertFromSelect(
+            $select,
+            $table,
+            ['entity_id', 'store_id', 'is_active', 'is_anchor'],
+        ));
         $durationMs = (hrtime(true) - $startNs) / 1_000_000;
 
         $output?->writeln(sprintf(
@@ -745,9 +793,10 @@ class SnapshotBuilder
         );
         $activeStoreRootSet = array_flip($activeStoreRoots);
 
-        // CE schema: catalog_category_entity.entity_id is the canonical link
-        // (no row_id staging like EE). An EE-aware port would resolve via
-        // metadataPool->getMetadata(CategoryInterface::class)->getLinkField().
+        // entity_id/path/level exist on both Open Source and Adobe Commerce
+        // schemas. On Adobe Commerce the staging FromRenderer injects the
+        // current-version filter into this Select at render time, so entities
+        // with scheduled updates yield exactly one row.
         $categories = $connection->fetchAll(
             $connection->select()
                 ->from($categoryTable, ['entity_id', 'path', 'level'])

@@ -179,7 +179,7 @@ All three replacements **extend** their core counterparts. Every overridden hook
 ## Compatibility
 
 - ✅ **Magento Open Source 2.4.6 - 2.4.9** (tested on 2.4.6-p14, 2.4.7-p7, and 2.4.8-p4 via Mage-OS 2.2.x)
-- ✅ **Adobe Commerce 2.4.6 - 2.4.9** (without staging - see Known limitations)
+- ✅ **Adobe Commerce 2.4.6 - 2.4.9** including staging — EAV joins resolve the metadata link field (`row_id`) and all snapshot reads are built as framework `Select` objects, so the staging `FromRenderer` applies current-version filters (verified byte-identical on a 2.4.7-p10 EE catalog with live scheduled updates)
 - ✅ **Mage-OS 1.x / 2.x / 3.x** - `getVersion()` stays Magento-compatible, so detection below works unchanged
 - ✅ **PHP 8.2 / 8.3 / 8.4 / 8.5** - matches the PHP window of the supported Magento releases; CI runs the full matrix
 - ✅ **MySQL 8.0** and **MariaDB 10.4 - 10.11**
@@ -301,7 +301,6 @@ The module-vs-core bit-identical comparison (toggling the DI preference between 
 
 ## Known limitations
 
-- **Adobe Commerce (EE) link-field assumption.** `SnapshotBuilder` currently hardcodes `entity_id` as the category link field. On Adobe Commerce with staging enabled, the canonical link field is `row_id` and the snapshot will come up empty. Multi-store staged EE installations: hold off until tracked in [#3](https://github.com/simplemage/magento2-category-product-indexer/issues/3).
 - **Bit-identical module-vs-core verifier not yet automated in-repo.** Output is verified MD5-identical to core on real catalogs (see [Measured impact](#measured-impact)); the in-repo integration suite pins preference wiring, non-empty output, and run-to-run determinism, but the comparison runner that toggles core vs. snapshot mode needs a separate process per DI configuration and lives in the companion `SimpleMage_IndexerBenchmark` module. Tracked in [#4](https://github.com/simplemage/magento2-category-product-indexer/issues/4).
 - **New store views require a full reindex.** Snapshot rows are materialised per existing store view; after creating a store view, run `bin/magento indexer:reindex catalog_category_product` once (core requires the same).
 
