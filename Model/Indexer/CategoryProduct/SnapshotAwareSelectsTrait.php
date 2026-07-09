@@ -9,7 +9,6 @@ declare(strict_types=1);
 
 namespace SimpleMage\CategoryProductIndexer\Model\Indexer\CategoryProduct;
 
-use Magento\Catalog\Api\Data\CategoryInterface;
 use Magento\Catalog\Api\Data\ProductInterface;
 use Magento\Catalog\Model\Indexer\Category\Product\AbstractAction;
 use Magento\Catalog\Model\Product\Visibility;
@@ -50,8 +49,6 @@ trait SnapshotAwareSelectsTrait
 {
     private function buildSnapshotAllProductsSelect(Store $store): Select
     {
-        $productMetadata = $this->metadataPool->getMetadata(ProductInterface::class);
-        $linkField = $productMetadata->getLinkField();
         $snapshotTable = $this->snapshotBuilder->getProductSnapshotTable();
         $storeId = (int) $store->getId();
 
@@ -64,7 +61,9 @@ trait SnapshotAwareSelectsTrait
             []
         )->joinInner(
             ['ps' => $snapshotTable],
-            sprintf('ps.entity_id = cp.%s AND ps.store_id = %d', $linkField, $storeId),
+            // Snapshot tables are keyed by stable entity_id, NOT the metadata
+            // link field — on Adobe Commerce cp.row_id diverges from entity_id.
+            sprintf('ps.entity_id = cp.entity_id AND ps.store_id = %d', $storeId),
             []
         )->joinLeft(
             ['ccp' => $this->getTable('catalog_category_product')],
@@ -173,11 +172,6 @@ trait SnapshotAwareSelectsTrait
 
         $temporaryTreeTable = $this->makeTempCategoryTreeIndex();
 
-        $productMetadata = $this->metadataPool->getMetadata(ProductInterface::class);
-        $categoryMetadata = $this->metadataPool->getMetadata(CategoryInterface::class);
-        $productLinkField = $productMetadata->getLinkField();
-        $categoryLinkField = $categoryMetadata->getLinkField();
-
         $productSnapshot = $this->snapshotBuilder->getProductSnapshotTable();
         $categorySnapshot = $this->snapshotBuilder->getCategorySnapshotTable();
 
@@ -209,11 +203,13 @@ trait SnapshotAwareSelectsTrait
             []
         )->joinInner(
             ['ps' => $productSnapshot],
-            sprintf('ps.entity_id = cpe.%s AND ps.store_id = %d', $productLinkField, $storeId),
+            // Snapshot tables are keyed by stable entity_id, NOT the metadata
+            // link field — on Adobe Commerce row_id diverges from entity_id.
+            sprintf('ps.entity_id = cpe.entity_id AND ps.store_id = %d', $storeId),
             []
         )->joinInner(
             ['cs' => $categorySnapshot],
-            sprintf('cs.entity_id = cc.%s AND cs.store_id = %d', $categoryLinkField, $storeId),
+            sprintf('cs.entity_id = cc.entity_id AND cs.store_id = %d', $storeId),
             []
         )->where(
             'cs.is_anchor = ?',
