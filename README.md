@@ -79,6 +79,19 @@ store view - no sampling).
 | Slow queries | 48 | 20 | 2.4× fewer |
 | Output identical to core | - | ✅ MATCH (18 728 407 rows) | |
 
+### Adobe Commerce 2.4.7-p10 - 116k products, 2 store views, live scheduled updates
+
+Correctness-only verification of the staging support added in 1.1.0 - no timings were
+recorded for this run.
+
+| Check | Result |
+|---|---|
+| Full reindex output vs core | ✅ MATCH (row count + per-store CRC32 fingerprints) |
+| Partial (mview) reindex output vs core | ✅ MATCH |
+| Product with 3 live staging versions | ✅ exactly one snapshot row per store |
+
+Contributed verification, [#1](https://github.com/SimpleMage/magento2-category-product-indexer/pull/1).
+
 Your mileage will vary by catalog size, taxonomy shape, and MySQL/MariaDB tuning - but the architectural advantage holds across all measured workloads.
 
 ## Installation
